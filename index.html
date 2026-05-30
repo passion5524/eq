@@ -1,0 +1,1165 @@
+```html
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>일차방정식 이항 시각화 학습기</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          screens: {
+            'xs': '375px',
+          },
+          colors: {
+            mathBg: '#f8fafc',
+            mathPrimary: '#3b82f6',
+            mathAccent: '#ef4444',
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=Fira+Code:wght@400;700&display=swap" rel="stylesheet">
+  
+  <style>
+    body {
+      font-family: 'Noto Sans KR', sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .math-font {
+      font-family: 'Fira Code', 'Noto Sans KR', monospace;
+    }
+    /* 가로 한 줄 세팅 - 모바일 화면에서 절대 잘리거나 꺾이지 않도록 최적화 */
+    .equation-track {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: nowrap;
+      gap: 3px;
+      width: 100%;
+      min-height: 90px;
+      padding: 8px 2px;
+      box-sizing: border-box;
+    }
+    
+    /* 평상시: 박스 테두리 없는 자연스러운 문자 스타일 */
+    .term-card {
+      touch-action: none; /* 모바일 브라우저 기본 스크롤 비활성화 */
+      cursor: grab;
+      will-change: transform;
+      transition: transform 0.2s ease, color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+      background-color: transparent;
+      border: 2px solid transparent;
+      padding: 4px 4px;
+      border-radius: 8px;
+    }
+    /* 마우스 호버 시 글자 크기와 약간의 강조 */
+    .term-card:hover {
+      transform: translateY(-2px);
+      background-color: rgba(219, 234, 254, 0.4); 
+    }
+    .term-card:active {
+      cursor: grabbing;
+    }
+    
+    /* 드래그 작동 순간: 화려한 입체형 박스 카드로 완벽 변신 */
+    .term-dragging {
+      z-index: 100;
+      background-color: #ffffff !important;
+      border-color: #3b82f6 !important;
+      border-style: solid !important;
+      border-width: 2px !important;
+      box-shadow: 0 10px 20px -5px rgba(59, 130, 246, 0.25);
+      transition: none !important; 
+    }
+
+    /* 반짝이는 등호 효과 */
+    .equals-badge {
+      text-shadow: 0 0 8px rgba(59, 130, 246, 0.25);
+      animation: pulse-glow 2s infinite alternate;
+    }
+    @keyframes pulse-glow {
+      from { transform: scale(1); }
+      to { transform: scale(1.05); }
+    }
+  </style>
+
+  <!-- Firebase CDN SDK (규칙 3 준수) -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, increment, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // 글로벌 바인딩 환경 변수 호출 구성
+    const firebaseConfig = window.__firebase_config ? JSON.parse(window.__firebase_config) : {
+      apiKey: "",
+      authDomain: "math-simulator-dummy.firebaseapp.com",
+      projectId: "math-simulator-dummy",
+      storageBucket: "math-simulator-dummy.appspot.com",
+      messagingSenderId: "123456789",
+      appId: "1:1234:web:abcd"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const appId = window.__app_id || 'default-math-app';
+
+    window.firebaseServices = { auth, db, appId, setDoc, doc, getDoc, collection, getDocs, updateDoc, increment, deleteDoc };
+  </script>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+  <!-- 헤더 영역 -->
+  <header class="bg-white border-b border-slate-200 py-3 px-4 shadow-sm">
+    <div class="max-w-xl mx-auto flex flex-col justify-between items-center gap-2">
+      <!-- 닉네임 및 오늘 학습량 & 학습기록 이동 패널 -->
+      <div class="w-full flex justify-between items-center bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100">
+        <div class="flex items-center gap-1.5">
+          <i class="fa-solid fa-user-graduate text-blue-600 text-xs"></i>
+          <span id="user-nickname-display" class="text-xs font-bold text-slate-700">로그인 중...</span>
+          <button onclick="triggerRename()" class="text-[10px] text-slate-400 hover:text-blue-500" title="닉네임 변경"><i class="fa-solid fa-pen"></i></button>
+        </div>
+        
+        <!-- 학습량 & 다른기록보기 수직 스택 배열 -->
+        <div class="flex flex-col items-end gap-1">
+          <!-- 오늘 학습량 배지 -->
+          <div class="flex items-center gap-1 bg-blue-100 text-blue-800 px-2 py-0.5 rounded-md text-[10px] font-bold">
+            <i class="fa-solid fa-fire text-amber-500 animate-pulse"></i>
+            <span>오늘 학습량:</span>
+            <span id="today-study-count" class="text-xs">0</span>
+          </div>
+          <!-- [위치 조정] 다른 학습 기록 보기 버튼 -->
+          <button onclick="openLeaderboardModal()" class="text-[9px] bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold px-2 py-0.5 rounded-md flex items-center gap-1 transition">
+            🏆 다른 학습 기록 보기
+          </button>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 mt-1">
+        <div class="bg-blue-600 text-white p-2 rounded-lg shadow-md shadow-blue-200">
+          <i class="fa-solid fa-calculator text-base"></i>
+        </div>
+        <div>
+          <h1 class="text-xl font-black text-slate-800 leading-tight">움직이는 일차방정식</h1>
+          <p class="text-[10px] text-slate-500 font-medium">드래그해 반대로 이항하면 부호가 바뀝니다!</p>
+        </div>
+      </div>
+      
+      <!-- 컨트롤 및 난이도 조절 -->
+      <div class="flex flex-wrap items-center justify-center gap-1.5 mt-1">
+        <button onclick="generateRandomProblem('easy')" class="px-2 py-1 bg-green-50 text-green-700 hover:bg-green-100 font-bold text-[11px] rounded-md border border-green-200 transition">
+          쉬운 문제
+        </button>
+        <button onclick="generateRandomProblem('medium')" class="px-2 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold text-[11px] rounded-md border border-blue-200 transition">
+          보통 문제
+        </button>
+        <button onclick="generateRandomProblem('hard')" class="px-2 py-1 bg-purple-50 text-purple-700 hover:bg-purple-100 font-bold text-[11px] rounded-md border border-purple-200 transition">
+          도전 문제
+        </button>
+        <button onclick="openCustomModal()" class="px-2 py-1 bg-slate-800 text-white hover:bg-slate-700 font-bold text-[11px] rounded-md transition">
+          직접 입력
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 메인 작업 영역 -->
+  <main class="flex-grow max-w-xl w-full mx-auto p-3 sm:p-4 flex flex-col justify-center">
+    
+    <!-- 워크스페이스 카드 -->
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex flex-col justify-between min-h-[320px] relative overflow-hidden">
+      
+      <!-- 상태 표시 및 초기화 -->
+      <div class="flex justify-between items-center mb-3">
+        <span id="problem-badge" class="px-2 py-0.5 text-[11px] font-bold bg-blue-100 text-blue-800 rounded-full">상태: 풀이 중</span>
+        <div class="flex gap-2">
+          <button onclick="resetCurrentProblem()" class="text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1 transition">
+            <i class="fa-solid fa-arrow-rotate-left"></i> 처음부터 다시
+          </button>
+        </div>
+      </div>
+
+      <!-- 일차방정식 한 줄 칠판 영역 -->
+      <div class="flex-grow flex flex-col justify-center items-center py-4 relative bg-slate-50 rounded-2xl border border-slate-100 shadow-inner overflow-hidden">
+        <div id="equation-canvas" class="equation-track select-none">
+          <!-- JS를 통해 항(Term 카드)과 등호가 실시간 일렬 정렬 배치됩니다. -->
+        </div>
+      </div>
+
+      <!-- 하단 액션 컨트롤러 -->
+      <div class="border-t border-slate-100 pt-3 mt-4 flex flex-col justify-between items-center gap-3">
+        <div class="flex items-center justify-start w-full">
+          <div class="flex items-center gap-1 text-[11px] text-slate-500">
+            <i class="fa-solid fa-circle-info text-blue-500"></i>
+            <span>항을 반대쪽으로 끌고 넘기세요!</span>
+          </div>
+        </div>
+        
+        <div class="flex gap-2 w-full">
+          <button onclick="simplifyBothSides()" class="flex-1 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-xs shadow-sm transition flex items-center justify-center gap-1">
+            <i class="fa-solid fa-compress"></i> 동류항 정리
+          </button>
+          <button id="final-solve-btn" onclick="divideToSolve()" class="flex-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs shadow-sm transition flex items-center justify-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed">
+            <i class="fa-solid fa-equals"></i> x 구하기 (나누기)
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- 닉네임 최초 입력 모달 -->
+  <div id="nickname-modal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+    <div class="bg-white rounded-3xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-slate-100 text-center">
+      <div class="bg-blue-100 text-blue-600 w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-4 text-xl">
+        <i class="fa-solid fa-user-astronaut"></i>
+      </div>
+      <h3 class="font-bold text-lg text-slate-800 mb-2">반갑습니다 학습자님!</h3>
+      <p class="text-xs text-slate-500 mb-4">공부에 사용할 멋진 닉네임을 설정해 주세요.</p>
+      
+      <div class="space-y-3 mb-4">
+        <input type="text" id="nickname-input" placeholder="한글/영문 닉네임 입력" class="w-full px-3 py-2.5 border-2 border-slate-200 rounded-xl text-center font-bold text-slate-800 focus:outline-none focus:border-blue-500">
+        <p id="nickname-error" class="text-[11px] text-red-500 font-medium hidden">닉네임을 입력해 주세요.</p>
+      </div>
+
+      <button onclick="saveUserNickname()" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm transition">
+        시작하기
+      </button>
+    </div>
+  </div>
+
+  <!-- 학습기록 및 랭킹 모달 (초기화 기능 추가) -->
+  <div id="leaderboard-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-300">
+    <div class="bg-white rounded-3xl p-5 max-w-sm w-full mx-4 shadow-2xl border border-slate-100 transform scale-95 transition-transform duration-300" id="leaderboard-content">
+      <div class="flex justify-between items-center mb-3">
+        <h3 class="font-bold text-base text-slate-800 flex items-center gap-1.5">
+          🏆 전체 사용자 학습량 기록
+        </h3>
+        <button onclick="closeLeaderboardModal()" class="text-slate-400 hover:text-slate-600 text-base">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      
+      <!-- 학습자 순위 리스트 -->
+      <div class="bg-slate-50 rounded-xl p-3 max-h-[220px] overflow-y-auto space-y-2 mb-3" id="leaderboard-list">
+        <div class="text-center py-6 text-xs text-slate-400">
+          <i class="fa-solid fa-spinner animate-spin text-base mb-2 block"></i>
+          기록을 불러오는 중입니다...
+        </div>
+      </div>
+
+      <!-- [추가] 관리자 초기화 기능 패널 (비밀번호: 4924) -->
+      <div class="border-t border-slate-100 pt-2 mb-4">
+        <div id="admin-trigger-btn" class="text-right">
+          <button onclick="toggleAdminPanel(true)" class="text-[10px] text-slate-400 hover:text-red-500 transition font-semibold">
+            <i class="fa-solid fa-user-shield"></i> 관리자 초기화
+          </button>
+        </div>
+        
+        <div id="admin-input-panel" class="hidden flex gap-1.5 mt-2">
+          <input type="password" id="admin-pass" placeholder="관리자 비번 입력" class="flex-grow px-2 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-red-500">
+          <button onclick="executeAdminReset()" class="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white font-bold rounded-lg text-xs transition">
+            확인
+          </button>
+          <button onclick="toggleAdminPanel(false)" class="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg text-xs transition">
+            취소
+          </button>
+        </div>
+      </div>
+
+      <button onclick="closeLeaderboardModal()" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl text-xs transition">
+        창 닫기
+      </button>
+    </div>
+  </div>
+
+  <!-- 직접 입력하기 모달 -->
+  <div id="custom-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-300">
+    <div class="bg-white rounded-3xl p-5 max-w-sm w-full mx-4 shadow-2xl border border-slate-100 transform scale-95 transition-transform duration-300" id="modal-content">
+      <div class="flex justify-between items-center mb-3">
+        <h3 class="font-bold text-base text-slate-800 flex items-center gap-1.5">
+          <i class="fa-solid fa-pen-to-square text-blue-600"></i> 나만의 방정식 입력하기
+        </h3>
+        <button onclick="closeCustomModal()" class="text-slate-400 hover:text-slate-600 text-base">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <p class="text-[11px] text-slate-500 mb-3 leading-relaxed">
+        좌변과 우변의 식을 직접 설계해 공부해보세요.<br>
+        예: <code class="bg-slate-100 text-slate-700 px-1 py-0.5 rounded">3x + 10</code> = <code class="bg-slate-100 text-slate-700 px-1 py-0.5 rounded">x + 2</code>
+      </p>
+
+      <div class="space-y-3">
+        <div class="grid grid-cols-9 items-center gap-1">
+          <div class="col-span-4">
+            <label class="block text-[10px] font-bold text-slate-500 mb-1">좌변 (Left)</label>
+            <input type="text" id="input-left" placeholder="예: 2x + 4" class="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-xs font-semibold text-center focus:outline-none focus:border-blue-500">
+          </div>
+          <div class="col-span-1 text-center font-black text-slate-400 text-base mt-4">=</div>
+          <div class="col-span-4">
+            <label class="block text-[10px] font-bold text-slate-500 mb-1">우변 (Right)</label>
+            <input type="text" id="input-right" placeholder="예: 10" class="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-xs font-semibold text-center focus:outline-none focus:border-blue-500">
+          </div>
+        </div>
+
+        <div id="modal-error" class="text-[11px] text-red-500 font-medium hidden"></div>
+
+        <div class="flex gap-2 pt-1">
+          <button onclick="closeCustomModal()" class="w-1/2 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs transition">
+            취소
+          </button>
+          <button onclick="submitCustomProblem()" class="w-1/2 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition">
+            적용하기
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 토스트 알림 구조 -->
+  <div id="toast-message" class="fixed bottom-6 right-6 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl text-xs font-medium translate-y-20 opacity-0 transition-all duration-300 flex items-center gap-2.5 z-50">
+    <i class="fa-solid fa-check text-green-400"></i>
+    <span id="toast-text">알림 메시지</span>
+  </div>
+
+  <!-- 메인 이항 시뮬레이션 인터랙션 스크립트 -->
+  <script>
+    let equationState = [];
+    let initialBackup = null; 
+    let solutionHistory = [];
+    let stepCount = 0;
+    
+    // 로컬 상태용 학습량 변수 및 닉네임 변수
+    let userNickname = "";
+    let todaySolvedCount = 0;
+    let currentUserId = "";
+
+    // 문제 예시 리스트
+    const problemsEasy = [
+      { left: "x + 6", right: "15" },
+      { left: "x - 8", right: "3" },
+      { left: "x + 12", right: "5" },
+      { left: "x - 3", right: "-7" }
+    ];
+    const problemsMedium = [
+      { left: "3x + 5", right: "20" },
+      { left: "4x - 12", right: "8" },
+      { left: "-2x + 7", right: "1" },
+      { left: "5x - 8", right: "12" }
+    ];
+    const problemsHard = [
+      { left: "4x - 6", right: "2x + 8" },
+      { left: "5x + 15", right: "x - 5" },
+      { left: "3x - 10", right: "8x + 15" },
+      { left: "-2x + 12", right: "3x - 13" }
+    ];
+
+    window.onload = function() {
+      initAppSession();
+      generateRandomProblem('medium');
+    }
+
+    // 닉네임 및 익명 인증 세션 초기 설정 (규칙 3 준수)
+    async function initAppSession() {
+      const storedNickname = localStorage.getItem('math_user_nickname');
+      let storedSolvedCount = localStorage.getItem('math_user_solved_count');
+      
+      if (storedSolvedCount) {
+        todaySolvedCount = parseInt(storedSolvedCount, 10);
+        document.getElementById('today-study-count').textContent = todaySolvedCount;
+      }
+
+      // 익명 인증 우선 진행
+      try {
+        const interval = setInterval(async () => {
+          if (window.firebaseServices) {
+            clearInterval(interval);
+            const { auth } = window.firebaseServices;
+            const userCredential = await signInAnonymously(auth);
+            currentUserId = userCredential.user.uid;
+
+            if (storedNickname) {
+              userNickname = storedNickname;
+              document.getElementById('user-nickname-display').textContent = `${userNickname} 학생`;
+              await syncUserCloudRecord();
+            } else {
+              document.getElementById('nickname-modal').classList.remove('hidden');
+            }
+          }
+        }, 100);
+      } catch (e) {
+        console.error("인증 처리 중 오류:", e);
+      }
+    }
+
+    // 새 닉네임 변경 트리거
+    function triggerRename() {
+      const input = document.getElementById('nickname-input');
+      input.value = userNickname;
+      document.getElementById('nickname-modal').classList.remove('hidden');
+    }
+
+    // 닉네임 로컬 및 클라우드 동시 저장
+    async function saveUserNickname() {
+      const input = document.getElementById('nickname-input').value.trim();
+      const err = document.getElementById('nickname-error');
+
+      if (!input) {
+        err.classList.remove('hidden');
+        return;
+      }
+      err.classList.add('hidden');
+
+      userNickname = input;
+      localStorage.setItem('math_user_nickname', userNickname);
+      document.getElementById('user-nickname-display').textContent = `${userNickname} 학생`;
+      document.getElementById('nickname-modal').classList.add('hidden');
+
+      // 클라우드 저장소 연동 동기화 진행
+      await syncUserCloudRecord();
+      showToast("닉네임 등록 완료!", "green");
+    }
+
+    // [클라우드 연동] 개인별 학습 기록 실시간 동기화 (규칙 1, 규칙 3 가이드 준수)
+    async function syncUserCloudRecord() {
+      if (!window.firebaseServices || !currentUserId) return;
+      const { db, appId, doc, setDoc } = window.firebaseServices;
+
+      try {
+        // Strict Path: /artifacts/{appId}/public/data/leaderboard/{userId}
+        const userDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'leaderboard', currentUserId);
+        await setDoc(userDocRef, {
+          userId: currentUserId,
+          nickname: userNickname,
+          score: todaySolvedCount,
+          lastUpdated: Date.now()
+        }, { merge: true });
+      } catch (err) {
+        console.error("클라우드 저장소 기록 연동에 실패했습니다.", err);
+      }
+    }
+
+    // [클라우드 연동] 리더보드 학습 목록 실시간 조회
+    async function openLeaderboardModal() {
+      const modal = document.getElementById('leaderboard-modal');
+      const content = document.getElementById('leaderboard-content');
+      const listEl = document.getElementById('leaderboard-list');
+
+      modal.classList.remove('hidden');
+      setTimeout(() => {
+        modal.classList.remove('opacity-0');
+        content.classList.remove('scale-95');
+      }, 50);
+
+      // 관리자 패널 원상복귀 초기화
+      toggleAdminPanel(false);
+
+      if (!window.firebaseServices) {
+        listEl.innerHTML = `<div class="text-center py-4 text-xs text-red-500">클라우드 서비스가 정의되지 않았습니다.</div>`;
+        return;
+      }
+
+      listEl.innerHTML = `
+        <div class="text-center py-6 text-xs text-slate-400">
+          <i class="fa-solid fa-spinner animate-spin text-base mb-2 block"></i>
+          기록을 동기화 중입니다...
+        </div>`;
+
+      const { db, appId, collection, getDocs } = window.firebaseServices;
+
+      try {
+        // 규칙 2에 따라 복잡한 orderBy 대신, 전체를 가져와 JS 상에서 동적 정렬 수행
+        const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
+        const querySnapshot = await getDocs(colRef);
+        
+        let records = [];
+        querySnapshot.forEach((doc) => {
+          records.push(doc.data());
+        });
+
+        records.sort((a, b) => (b.score || 0) - (a.score || 0));
+
+        if (records.length === 0) {
+          listEl.innerHTML = `<div class="text-center py-6 text-xs text-slate-400">등록된 학습 기록이 없습니다.</div>`;
+          return;
+        }
+
+        let html = '';
+        records.forEach((rec, idx) => {
+          const isCurrentUser = rec.userId === currentUserId;
+          const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}위`;
+          html += `
+            <div class="flex justify-between items-center bg-white px-3 py-1.5 rounded-xl border ${isCurrentUser ? 'border-blue-400 bg-blue-50/20' : 'border-slate-100'}">
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs font-bold w-6 text-slate-500">${medal}</span>
+                <span class="text-xs font-semibold text-slate-700 truncate max-w-[120px]">${rec.nickname || '익명'}</span>
+                ${isCurrentUser ? '<span class="text-[9px] bg-blue-500 text-white px-1.5 py-0.2 rounded-full">나</span>' : ''}
+              </div>
+              <span class="text-xs font-bold text-slate-600">${rec.score || 0}문제</span>
+            </div>
+          `;
+        });
+        listEl.innerHTML = html;
+
+      } catch (err) {
+        console.error(err);
+        listEl.innerHTML = `<div class="text-center py-4 text-xs text-red-500">기록 로드 중 오류가 발생했습니다.</div>`;
+      }
+    }
+
+    function closeLeaderboardModal() {
+      const modal = document.getElementById('leaderboard-modal');
+      const content = document.getElementById('leaderboard-content');
+      modal.classList.add('opacity-0');
+      content.classList.add('scale-95');
+      setTimeout(() => {
+        modal.classList.add('hidden');
+      }, 300);
+    }
+
+    // [추가] 관리자 패널 토글 제어
+    window.toggleAdminPanel = function(show) {
+      const btn = document.getElementById('admin-trigger-btn');
+      const panel = document.getElementById('admin-input-panel');
+      const passInput = document.getElementById('admin-pass');
+      if (show) {
+        btn.classList.add('hidden');
+        panel.classList.remove('hidden');
+        passInput.value = '';
+        passInput.focus();
+      } else {
+        btn.classList.remove('hidden');
+        panel.classList.add('hidden');
+      }
+    };
+
+    // [추가] 관리자 데이터베이스 강제 초기화 실행 (규칙 2, 규칙 3 준수)
+    window.executeAdminReset = async function() {
+      const pass = document.getElementById('admin-pass').value;
+      if (pass !== '4924') {
+        showToast("관리자 비밀번호가 틀렸습니다.", "red");
+        return;
+      }
+
+      if (!window.firebaseServices) return;
+      const { db, appId, collection, getDocs, deleteDoc, doc } = window.firebaseServices;
+
+      try {
+        showToast("클라우드 데이터를 초기화 중...", "info");
+        const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
+        const querySnapshot = await getDocs(colRef);
+        
+        // 순차 삭제 연산 수행
+        const deletePromises = [];
+        querySnapshot.forEach((documentSnap) => {
+          const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'leaderboard', documentSnap.id);
+          deletePromises.push(deleteDoc(docRef));
+        });
+
+        await Promise.all(deletePromises);
+
+        // 현재 사용자 본인의 로컬 정답 누적 값도 0으로 함께 리셋
+        todaySolvedCount = 0;
+        localStorage.setItem('math_user_solved_count', 0);
+        document.getElementById('today-study-count').textContent = 0;
+
+        showToast("전체 기록이 완전 초기화되었습니다!", "green");
+        toggleAdminPanel(false);
+        
+        // 랭킹 리스트 즉시 리로드
+        openLeaderboardModal();
+
+      } catch (err) {
+        console.error("초기화 실패: ", err);
+        showToast("기록 초기화 작업에 실패했습니다.", "red");
+      }
+    };
+
+    // 문자열 파싱하여 단일 수식 배열로 일원화
+    function parseSideExpression(exprStr, isLeftSide) {
+      const cleanExpr = exprStr.replace(/\s+/g, '');
+      const terms = [];
+      const regex = /([+-]?[0-9]*x)|([+-]?[0-9]+)/gi;
+      const matches = cleanExpr.match(regex);
+      
+      if (!matches) return [];
+
+      let indexCounter = 0;
+      matches.forEach((m) => {
+        if (!m) return;
+        let termStr = m;
+        let coeff = 1;
+        let isVariable = false;
+
+        if (termStr[0] !== '+' && termStr[0] !== '-') {
+          termStr = '+' + termStr;
+        }
+
+        const isNegative = termStr[0] === '-';
+        let valPart = termStr.substring(1);
+
+        if (valPart.toLowerCase().includes('x')) {
+          isVariable = true;
+          const coeffStr = valPart.toLowerCase().replace('x', '');
+          if (coeffStr === '') {
+            coeff = isNegative ? -1 : 1;
+          } else {
+            coeff = isNegative ? -parseInt(coeffStr, 10) : parseInt(coeffStr, 10);
+          }
+        } else {
+          isVariable = false;
+          coeff = isNegative ? -parseInt(valPart, 10) : parseInt(valPart, 10);
+        }
+
+        terms.push({
+          id: `${isLeftSide ? 'L' : 'R'}-${indexCounter++}-${Date.now()}-${Math.floor(Math.random()*1000)}`,
+          coeff: coeff,
+          isVariable: isVariable,
+          isEquals: false
+        });
+      });
+
+      return terms;
+    }
+
+    // 현재의 플랫 배열 기반 방정식 수식을 완전체 문자열로 가공
+    function getEquationString(state) {
+      let leftPart = [];
+      let rightPart = [];
+      let isPastEquals = false;
+
+      state.forEach(t => {
+        if (t.isEquals) {
+          isPastEquals = true;
+          return;
+        }
+        if (!isPastEquals) {
+          leftPart.push(t);
+        } else {
+          rightPart.push(t);
+        }
+      });
+
+      const formatSide = (terms) => {
+        if (terms.length === 0) return "0";
+        let str = "";
+        terms.forEach((t, idx) => {
+          let sign = t.coeff >= 0 ? "+" : "-";
+          let absCoeff = Math.abs(t.coeff);
+          let valStr = t.isVariable ? (absCoeff === 1 ? "x" : absCoeff + "x") : absCoeff;
+          
+          if (idx === 0) {
+            str += (sign === "-" ? "-" : "") + valStr;
+          } else {
+            str += ` ${sign} ${valStr}`;
+          }
+        });
+        return str;
+      };
+
+      return `${formatSide(leftPart)} = ${formatSide(rightPart)}`;
+    }
+
+    // 난이도별 로더
+    function generateRandomProblem(difficulty) {
+      let selectedPool = problemsMedium;
+      if (difficulty === 'easy') selectedPool = problemsEasy;
+      else if (difficulty === 'hard') selectedPool = problemsHard;
+
+      const randomIdx = Math.floor(Math.random() * selectedPool.length);
+      const prob = selectedPool[randomIdx];
+      
+      loadProblem(prob.left, prob.right);
+    }
+
+    // 데이터 적재
+    function loadProblem(leftStr, rightStr) {
+      const leftTerms = parseSideExpression(leftStr, true);
+      const rightTerms = parseSideExpression(rightStr, false);
+
+      // 플랫 단일 리스트 구조 생성
+      equationState = [
+        ...leftTerms,
+        { id: 'EQUALS-SIGN', isEquals: true },
+        ...rightTerms
+      ];
+
+      initialBackup = JSON.parse(JSON.stringify(equationState));
+      
+      solutionHistory = [];
+      stepCount = 0;
+      
+      addHistory(getEquationString(equationState), "방정식이 로드되었습니다. 항을 직접 움직여 자유롭게 풀어보세요.");
+      renderCanvas();
+      updateSolveButtonState();
+    }
+
+    // 메인 한 줄 렌더러
+    function renderCanvas() {
+      const canvas = document.getElementById('equation-canvas');
+      canvas.innerHTML = '';
+
+      equationState.forEach((item, index) => {
+        if (item.isEquals) {
+          // 등호 생성
+          const equalsEl = document.createElement('div');
+          equalsEl.id = 'equals-sign';
+          equalsEl.className = 'text-3xl md:text-5xl font-black text-blue-600 px-1 mx-0.5 select-none equals-badge math-font';
+          equalsEl.innerHTML = '=';
+          canvas.appendChild(equalsEl);
+        } else {
+          // 일반 수식 항 카드 생성
+          const card = createTermCard(item, index);
+          canvas.appendChild(card);
+        }
+      });
+    }
+
+    // 개별 이항 카드 생성 및 마우스/터치 드래그 물리 바인딩
+    function createTermCard(term, index) {
+      const el = document.createElement('div');
+      el.id = term.id;
+      el.className = 'term-card relative flex items-center select-none text-2xl xs:text-3xl md:text-4xl font-extrabold transition-all';
+      
+      const isPositive = term.coeff >= 0;
+      const absCoeff = Math.abs(term.coeff);
+      const valStr = term.isVariable ? (absCoeff === 1 ? 'x' : absCoeff + 'x') : absCoeff;
+
+      el.innerHTML = `
+        <span class="sign-part mr-0.5 font-extrabold ${isPositive ? 'text-blue-500' : 'text-red-500'}">${isPositive ? '+' : '-'}</span>
+        <span class="value-part math-font font-black text-slate-800">${valStr}</span>
+        <span class="drag-indicator ml-0.5 text-xs text-slate-300 opacity-0 group-hover:opacity-100 pointer-events-none"><i class="fa-solid fa-grip-vertical"></i></span>
+      `;
+
+      // 실시간 부호 전환 드래그 물리 로직 주입 (Pointer Events)
+      setupPointerDrag(el, term);
+
+      return el;
+    }
+
+    // 포인터 정밀 제어 (마우스/터치 공용) 실시간 등호 감지 처리기
+    function setupPointerDrag(element, term) {
+      let startX = 0;
+      let startY = 0;
+      let originalIndex = -1;
+      let equalsIndex = -1;
+      
+      let equalsLeftBound = 0;
+      let equalsRightBound = 0;
+      let isCurrentlyInverted = false; // 등호를 넘었는지 여부 임시 기입
+
+      element.addEventListener('pointerdown', (e) => {
+        // 드래그 대상 및 시작 좌표 기입
+        startX = e.clientX;
+        startY = e.clientY;
+
+        // 드래그 중인 카드 기준 등호 위치 스캔
+        const equalsEl = document.getElementById('equals-sign');
+        if (!equalsEl) return;
+        const eqRect = equalsEl.getBoundingClientRect();
+        equalsLeftBound = eqRect.left;
+        equalsRightBound = eqRect.right;
+
+        // 원본 배열상의 등호 인덱스 파악
+        originalIndex = equationState.findIndex(t => t.id === term.id);
+        equalsIndex = equationState.findIndex(t => t.isEquals);
+
+        // 드래그가 시작되는 순간에만 아름다운 입체 카드 스타일링 부여
+        element.classList.add('term-dragging');
+        
+        isCurrentlyInverted = false;
+
+        // 이벤트 대상을 window로 설정하여 마우스가 엘리먼트를 벗어나도 안정적으로 드래그 유지
+        window.addEventListener('pointermove', onPointerMove);
+        window.addEventListener('pointerup', onPointerUp);
+      });
+
+      function onPointerMove(e) {
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        // 자유로운 실시간 화면 배치 (scale을 유지하면서 정확히 translate 제어)
+        element.style.transform = `translate(${dx}px, ${dy}px) scale(1.15)`;
+
+        // 등호의 경계 교차 여부 파악
+        const cardRect = element.getBoundingClientRect();
+        const cardCenter = cardRect.left + cardRect.width / 2;
+        const equalsCenter = (equalsLeftBound + equalsRightBound) / 2;
+
+        let shouldInvert = false;
+        
+        // 좌변에 있던 카드였을 때, 등호 중심의 오른쪽으로 넘어갔는가?
+        if (originalIndex < equalsIndex) {
+          if (cardCenter > equalsCenter) {
+            shouldInvert = true;
+          }
+        } 
+        // 우변에 있던 카드였을 때, 등호 중심의 왼쪽으로 넘어갔는가?
+        else {
+          if (cardCenter < equalsCenter) {
+            shouldInvert = true;
+          }
+        }
+
+        // 실시간 부호 바꾸기 피드백 출력!
+        const signSpan = element.querySelector('.sign-part');
+        if (shouldInvert) {
+          if (!isCurrentlyInverted) {
+            isCurrentlyInverted = true;
+            // 가상 반사 부호 적용
+            const tempCoeff = -term.coeff;
+            signSpan.textContent = tempCoeff >= 0 ? '+' : '-';
+            signSpan.className = `sign-part mr-0.5 font-black scale-110 transition-all ${tempCoeff >= 0 ? 'text-green-500' : 'text-red-600'}`;
+            element.classList.add('border-indigo-500', 'bg-indigo-50/50');
+          }
+        } else {
+          if (isCurrentlyInverted) {
+            isCurrentlyInverted = false;
+            // 원본 부호로 환원
+            signSpan.textContent = term.coeff >= 0 ? '+' : '-';
+            signSpan.className = `sign-part mr-0.5 font-bold ${term.coeff >= 0 ? 'text-blue-500' : 'text-red-500'}`;
+            element.classList.remove('border-indigo-500', 'bg-indigo-50/50');
+          }
+        }
+      }
+
+      function onPointerUp(e) {
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', onPointerUp);
+
+        // 드래그가 끝나면 카드 스타일링 소멸 및 원상복구
+        element.classList.remove('term-dragging', 'border-indigo-500', 'bg-indigo-50/50');
+        element.style.transform = '';
+
+        const cardRect = element.getBoundingClientRect();
+        const cardCenter = cardRect.left + cardRect.width / 2;
+        const equalsCenter = (equalsLeftBound + equalsRightBound) / 2;
+
+        let hasCrossed = false;
+        if (originalIndex < equalsIndex) {
+          if (cardCenter > equalsCenter) hasCrossed = true;
+        } else {
+          if (cardCenter < equalsCenter) hasCrossed = true;
+        }
+
+        if (hasCrossed) {
+          // 실제로 등호를 넘겼다면 전체 연산 상태 반영
+          finalizeTranspose(term.id);
+        } else {
+          // 취소되었다면 단순히 제자리 렌더링
+          renderCanvas();
+        }
+      }
+    }
+
+    // 이항 확정 후 배열 조립 및 기록 보관
+    function finalizeTranspose(termId) {
+      const idx = equationState.findIndex(t => t.id === termId);
+      if (idx === -1) return;
+
+      const eqIdx = equationState.findIndex(t => t.isEquals);
+      const targetTerm = equationState[idx];
+
+      const oldCoeff = targetTerm.coeff;
+      targetTerm.coeff = -targetTerm.coeff; // 부호 반전 연산
+
+      // 원본 항목 삭제
+      equationState.splice(idx, 1);
+
+      // 등호 너머 편으로 위치 조정 삽입
+      if (idx < eqIdx) {
+        // 좌변에서 우변으로 (등호 뒤쪽 맨 끝에 정렬 추가)
+        equationState.push(targetTerm);
+      } else {
+        // 우변에서 좌변으로 (등호 앞쪽 맨 끝에 정렬 추가)
+        const newEqIdx = equationState.findIndex(t => t.isEquals);
+        equationState.splice(newEqIdx, 0, targetTerm);
+      }
+
+      const termName = targetTerm.isVariable ? 
+        (Math.abs(oldCoeff) === 1 ? 'x' : Math.abs(oldCoeff) + 'x') : Math.abs(oldCoeff);
+      const isLtoR = idx < eqIdx;
+      const desc = `${isLtoR ? '좌변' : '우변'}의 ${oldCoeff >= 0 ? '+' : '-'}${termName} 항을 반대쪽으로 끌고 와 ${targetTerm.coeff >= 0 ? '+' : '-'}${termName}가 되었습니다.`;
+
+      addHistory(getEquationString(equationState), desc);
+      renderCanvas();
+      updateSolveButtonState();
+
+      // 바뀐 신생 엘리먼트에 잠깐의 애니메이션 클래스 주입
+      const newCard = document.getElementById(termId);
+      if (newCard) {
+        newCard.classList.add('scale-105', 'bg-blue-50/40');
+        setTimeout(() => {
+          newCard.classList.remove('scale-105', 'bg-blue-50/40');
+        }, 500);
+      }
+    }
+
+    // 가로 줄 위에 정렬된 두 세션 합산 (동류항 정리)
+    function simplifyBothSides() {
+      const eqIdx = equationState.findIndex(t => t.isEquals);
+      const leftPart = equationState.slice(0, eqIdx);
+      const rightPart = equationState.slice(eqIdx + 1);
+
+      const combineTerms = (terms, sidePrefix) => {
+        let xSum = 0;
+        let numSum = 0;
+
+        terms.forEach(t => {
+          if (t.isVariable) {
+            xSum += t.coeff;
+          } else {
+            numSum += t.coeff;
+          }
+        });
+
+        const output = [];
+        if (xSum !== 0) {
+          output.push({
+            id: `${sidePrefix}-v-${Date.now()}`,
+            coeff: xSum,
+            isVariable: true,
+            isEquals: false
+          });
+        }
+        if (numSum !== 0 || xSum === 0) {
+          output.push({
+            id: `${sidePrefix}-n-${Date.now()}`,
+            coeff: numSum,
+            isVariable: false,
+            isEquals: false
+          });
+        }
+        return output;
+      };
+
+      const originalEqStr = getEquationString(equationState);
+
+      const newLeft = combineTerms(leftPart, 'L');
+      const newRight = combineTerms(rightPart, 'R');
+
+      equationState = [
+        ...newLeft,
+        { id: 'EQUALS-SIGN', isEquals: true },
+        ...newRight
+      ];
+
+      const afterEqStr = getEquationString(equationState);
+
+      if (originalEqStr === afterEqStr) {
+        showToast("이미 동류항 정리가 완료되어 더 줄일 수 없습니다.", "amber");
+        return;
+      }
+
+      addHistory(afterEqStr, "좌변과 우변의 동류항끼리 묶어서 정돈을 마쳤습니다.");
+      renderCanvas();
+      updateSolveButtonState();
+    }
+
+    // 양변을 나누어 정답 도출
+    function divideToSolve() {
+      const eqIdx = equationState.findIndex(t => t.isEquals);
+      const leftPart = equationState.slice(0, eqIdx);
+      const rightPart = equationState.slice(eqIdx + 1);
+
+      if (leftPart.length !== 1 || rightPart.length !== 1) {
+        showToast("양변을 더 깔끔하게 정리한 후 실행해주세요.", "amber");
+        return;
+      }
+
+      const leftTerm = leftPart[0];
+      const rightTerm = rightPart[0];
+
+      if (!leftTerm.isVariable || rightTerm.isVariable) {
+        showToast("좌변에는 x항, 우변에는 숫자항만 남아있어야 합니다.", "red");
+        return;
+      }
+
+      const a = leftTerm.coeff;
+      const b = rightTerm.coeff;
+
+      if (a === 1) {
+        showToast("이미 정답 x를 확보했습니다!", "green");
+        return;
+      }
+
+      if (a === 0) {
+        showToast("x의 계수가 0이므로 해를 정의할 수 없습니다.", "red");
+        return;
+      }
+
+      const rawVal = b / a;
+      let finalStr = "";
+
+      if (Number.isInteger(rawVal)) {
+        finalStr = rawVal.toString();
+      } else {
+        const getGCD = (x, y) => y ? getGCD(y, x % y) : x;
+        const common = Math.abs(getGCD(a, b));
+        const num = b / common;
+        const den = a / common;
+
+        if (den === -1) {
+          finalStr = (-num).toString();
+        } else if (den < 0) {
+          finalStr = `-${Math.abs(num)}/${Math.abs(den)}`;
+        } else {
+          finalStr = `${num}/${den}`;
+        }
+      }
+
+      equationState = [
+        { id: 'final-x', coeff: 1, isVariable: true, isEquals: false },
+        { id: 'EQUALS-SIGN', isEquals: true },
+        { id: 'final-ans', coeff: rawVal, isVariable: false, isEquals: false, customStr: finalStr }
+      ];
+
+      addHistory(`x = ${finalStr}`, `양변을 x의 앞 계수인 ${a}로 깔끔하게 나눴습니다.`);
+      renderCanvas();
+
+      const badge = document.getElementById('problem-badge');
+      badge.textContent = "풀이 완료! 🎉";
+      badge.className = "px-2.5 py-1 text-xs font-semibold bg-green-100 text-green-800 rounded-full animate-pulse";
+
+      // [학습량 누적 시스템 탑재] 풀이 완수에 성공한 시점
+      todaySolvedCount++;
+      localStorage.setItem('math_user_solved_count', todaySolvedCount);
+      document.getElementById('today-study-count').textContent = todaySolvedCount;
+      syncUserCloudRecord(); // Firebase Firestore 동기화
+
+      updateSolveButtonState();
+    }
+
+    // 최종 양변나누기 버튼 활성화 유무 추정
+    function updateSolveButtonState() {
+      const btn = document.getElementById('final-solve-btn');
+      const eqIdx = equationState.findIndex(t => t.isEquals);
+      const leftPart = equationState.slice(0, eqIdx);
+      const rightPart = equationState.slice(eqIdx + 1);
+
+      if (leftPart.length === 1 && rightPart.length === 1) {
+        const leftTerm = leftPart[0];
+        const rightTerm = rightPart[0];
+        if (leftTerm.isVariable && !rightTerm.isVariable && leftTerm.coeff !== 1) {
+          btn.removeAttribute('disabled');
+          return;
+        }
+      }
+      btn.setAttribute('disabled', 'true');
+    }
+
+    // 내부 상태용 이력 관리기 (UI 연동 안전 처리)
+    function addHistory(equationStr, desc) {
+      solutionHistory.push({ equationStr, desc });
+      stepCount++;
+    }
+
+    // 원본 문제 되돌리기
+    function resetCurrentProblem() {
+      if (!initialBackup) return;
+      
+      const badge = document.getElementById('problem-badge');
+      badge.textContent = "상태: 풀이 중";
+      badge.className = "px-2.5 py-1 text-xs font-semibold bg-blue-100 text-blue-800 rounded-full";
+
+      equationState = JSON.parse(JSON.stringify(initialBackup));
+      solutionHistory = [];
+      stepCount = 0;
+
+      addHistory(getEquationString(equationState), "방정식을 처음 출발 지점으로 되돌렸습니다.");
+      renderCanvas();
+      updateSolveButtonState();
+      showToast("처음으로 복원되었습니다.", "info");
+    }
+
+    // 직접 입력하기 모달 제어
+    function openCustomModal() {
+      const modal = document.getElementById('custom-modal');
+      const content = document.getElementById('modal-content');
+      modal.classList.remove('hidden');
+      setTimeout(() => {
+        modal.classList.remove('opacity-0');
+        content.classList.remove('scale-95');
+      }, 50);
+    }
+
+    function closeCustomModal() {
+      const modal = document.getElementById('custom-modal');
+      const content = document.getElementById('modal-content');
+      modal.classList.add('opacity-0');
+      content.classList.add('scale-95');
+      setTimeout(() => {
+        modal.classList.add('hidden');
+      }, 300);
+      document.getElementById('modal-error').classList.add('hidden');
+    }
+
+    function submitCustomProblem() {
+      const leftVal = document.getElementById('input-left').value.trim();
+      const rightVal = document.getElementById('input-right').value.trim();
+      const errBox = document.getElementById('modal-error');
+
+      if (!leftVal || !rightVal) {
+        errBox.textContent = "좌변과 우변 칸을 모두 입력해주세요.";
+        errBox.classList.remove('hidden');
+        return;
+      }
+
+      const mathPattern = /^[0-9xX+\-\s]+$/;
+      if (!mathPattern.test(leftVal) || !mathPattern.test(rightVal)) {
+        errBox.textContent = "숫자, x, +, - 기호만 사용하여 기입해 주세요.";
+        errBox.classList.remove('hidden');
+        return;
+      }
+
+      if (!leftVal.toLowerCase().includes('x') && !rightVal.toLowerCase().includes('x')) {
+        errBox.textContent = "미지수 x를 최소 하나 이상 넣어 주셔야 일차방정식이 성립됩니다.";
+        errBox.classList.remove('hidden');
+        return;
+      }
+
+      loadProblem(leftVal.toLowerCase(), rightVal.toLowerCase());
+      closeCustomModal();
+      showToast("나만의 방정식이 세팅되었습니다!", "green");
+    }
+
+    // 토스트 알림창
+    function showToast(text, type = 'info') {
+      const toast = document.getElementById('toast-message');
+      const toastText = document.getElementById('toast-text');
+      
+      toastText.textContent = text;
+      const icon = toast.querySelector('i');
+      icon.className = "fa-solid shrink-0";
+      
+      if (type === 'green') {
+        icon.classList.add('fa-circle-check', 'text-green-400');
+      } else if (type === 'red') {
+        icon.classList.add('fa-triangle-exclamation', 'text-red-400');
+      } else if (type === 'amber') {
+        icon.classList.add('fa-circle-exclamation', 'text-amber-400');
+      } else {
+        icon.classList.add('fa-info-circle', 'text-blue-400');
+      }
+
+      toast.classList.remove('translate-y-20', 'opacity-0');
+      setTimeout(() => {
+        toast.classList.add('translate-y-20', 'opacity-0');
+      }, 3000);
+    }
+  </script>
+</body>
+</html>
+
+```
